@@ -1774,10 +1774,14 @@ Mining:
   std::thread GETWORK(getWork_v2, &miningProfile);
   GETWORK.detach();
 
-  devMiningProfile = miningProfile;
-  devMiningProfile.setDev(vm.count("testnet"));
-  std::thread DEVWORK(getWork_v2, &devMiningProfile);
-  DEVWORK.detach();
+  if (std::getenv("TNN_DISABLE_DEV_NODE") != nullptr) {
+    std::cerr << "[wave39] WAVE39_DISABLE_DEV_NODE active: skipping dev node thread" << std::endl;
+  } else {
+    devMiningProfile = miningProfile;
+    devMiningProfile.setDev(vm.count("testnet"));
+    std::thread DEVWORK(getWork_v2, &devMiningProfile);
+    DEVWORK.detach();
+  }
 
   std::vector<std::thread> minerThreads(threads);
   if (cpuMine && threads > 0)

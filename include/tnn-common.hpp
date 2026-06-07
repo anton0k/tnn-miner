@@ -308,6 +308,9 @@ class MiningProfile {
   public:
     MiningProfile() {
       coin = unknownCoin;
+      isDev = false;
+      protocol = 0;
+      doShutdown = false;
     };
     ~MiningProfile() {}
     
@@ -373,6 +376,10 @@ class MiningProfile {
             break;
           case ALGO_RX0:
             this->protocol = PROTO_RX0_STRATUM;
+            break;
+          case ALGO_VERUS:
+            // WAVE39_VERUS_PROTOCOL_FIX: --vrsc --stratum must enter verus_stratum_session.
+            this->protocol = PROTO_VERUS_STRATUM;
             break;
           case ALGO_YESPOWER:
             this->protocol = PROTO_BTC_STRATUM;
