@@ -8,20 +8,19 @@
 #include <string.h>
 #include <unistd.h>
 #include <assert.h>
+#include <sys/time.h>
 #define VERUS_KEY_SIZE 8832
 #define VERUS_KEY_SIZE128 552
 #include <stdexcept>
 #include <vector>
-#include "verus_clhash.h"
 #include "uint256.h"
+#include "verus_clhash.h"
 //#include "hash.h"
-#include <miner.h>
+#include "crypto/verus/tnn_verus_work_bridge.h"
 //#include "primitives/block.h"
-//extern "C"
-//{
-//#include "haraka.h"
-
-//}
+extern "C" {
+#include "crypto/haraka.h"
+}
 enum
 {
 	// primary actions
@@ -79,6 +78,16 @@ extern "C" inline void FixKey(uint32_t *fixrand, uint32_t *fixrandex, u128 *keyb
 		keyback[fixrand[i]] = g_prand[i];
 	}
 
+}
+
+extern "C" inline void FixKeyFromScratch(u128 *keyback, __m128i **pMoveScratch)
+{
+	const uint32_t ofs = VERUS_KEY_SIZE >> 4;
+	for (__m128i *pfixup = *pMoveScratch; pfixup; pfixup = *++pMoveScratch)
+	{
+		*pfixup = *(pfixup + ofs);
+	}
+	(void)keyback;
 }
 
 
@@ -144,14 +153,16 @@ extern "C" void inline Verus2hash(unsigned char *hash, unsigned char *curBuf, un
 	uint64_t intermediate;
 	memcpy(curBuf + 32, nonce, 15);  //copy the 15bytes nonce
 
-	intermediate = verusclhashv2_2(data_key, curBuf, 511, fixrand, fixrandex, g_prand, g_prandex);
+	__m128i **moveScratch = (__m128i **)((unsigned char *)data_key + VERUS_KEY_SIZE + 512);
+	memset(moveScratch, 0, 512);
+	intermediate = verusclhash_sv2_2(data_key, curBuf, 511, moveScratch);
 		//FillExtra
 	__m128i fill2 = _mm_shuffle_epi8(_mm_loadl_epi64((u128 *)&intermediate), shuf2);
 	_mm_store_si128((u128 *)(&curBuf[32 + 16]), fill2);
 	curBuf[32 + 15] = *((unsigned char *)&intermediate);
 	intermediate &= 511;
 	haraka512_keyed(hash, curBuf, data_key + intermediate);
-	FixKey(fixrand, fixrandex, data_key, g_prand, g_prandex);
+	FixKeyFromScratch(data_key, moveScratch);
 }
 
 

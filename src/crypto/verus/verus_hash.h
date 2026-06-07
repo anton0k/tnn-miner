@@ -15,13 +15,12 @@ This provides the PoW hash function for Verus, enabling CPU mining.
 #include <vector>
 
 #include "uint256.h"
-#include "verus_clhash.h"
+#include "crypto/verus_clhash.h"
 
 extern "C" 
 {
-#include "haraka.h"
-#include "haraka_portable.h"
-
+#include "crypto/verus/haraka.h"
+#include "crypto/haraka_portable.h"
 }
 
 class CVerusHash
@@ -85,7 +84,7 @@ class CVerusHashV2
 
         verusclhasher vclh;
 
-        CVerusHashV2() : vclh() {
+        CVerusHashV2(int solutionVersion=SOLUTION_VERUSHHASH_V2_1) : vclh(VERUSKEYSIZE, solutionVersion) {
             // we must have allocated key space, or can't run
             if (!verusclhasher_key.get())
             {
@@ -102,11 +101,7 @@ class CVerusHashV2
             result = buf2;
             curPos = 0;
             std::fill(buf1, buf1 + sizeof(buf1), 0);
-
-			return *this;
-
             return *this;
-
         }
 
         inline int64_t *ExtraI64Ptr() { return (int64_t *)(curBuf + 32); }
@@ -149,21 +144,21 @@ class CVerusHashV2
         // chains Haraka256 from 32 bytes to fill the key
         static u128 *GenNewCLKey(unsigned char *seedBytes32)
         {
-	
-			unsigned char *key = (unsigned char *)verusclhasher_key.get();
+            unsigned char *key = (unsigned char *)verusclhasher_key.get();
             verusclhash_descr *pdesc = (verusclhash_descr *)verusclhasher_descr.get();
+            int size = pdesc->keySizeInBytes;
+            int refreshsize = verusclhasher::keymask(size) + 1;
             // skip keygen if it is the current key
             if (pdesc->seed != *((uint256 *)seedBytes32))
             {
                 // generate a new key by chain hashing with Haraka256 from the last curbuf
-                int n256blks = pdesc->keySizeInBytes >> 5;
-                int nbytesExtra = pdesc->keySizeInBytes & 0x1f;
-                unsigned char *pkey = key + pdesc->keySizeInBytes;
+                int n256blks = size >> 5;
+                int nbytesExtra = size & 0x1f;
+                unsigned char *pkey = key;
                 unsigned char *psrc = seedBytes32;
                 for (int i = 0; i < n256blks; i++)
                 {
                     (*haraka256Function)(pkey, psrc);
-
                     psrc = pkey;
                     pkey += 32;
                 }
@@ -174,8 +169,14 @@ class CVerusHashV2
                     memcpy(pkey, buf, nbytesExtra);
                 }
                 pdesc->seed = *((uint256 *)seedBytes32);
+                memcpy(key + size, key, refreshsize);
             }
-            memcpy(key, key + pdesc->keySizeInBytes, pdesc->keySizeInBytes);
+            else
+            {
+                memcpy(key, key + size, refreshsize);
+            }
+
+            memset((unsigned char *)key + (size + refreshsize), 0, size - refreshsize);
             return (u128 *)key;
         }
 
@@ -190,26 +191,34 @@ class CVerusHashV2
         {
             // fill buffer to the end with the beginning of it to prevent any foreknowledge of
             // bits that may contain zero
-			//uint8_t temp[64] = { 0x0c, 0x4b, 0x23, 0x67, 0x8e, 0x9d, 0xc3, 0x5e, 0xaa, 0xed, 0x49, 0x3e, 0x32, 0x27, 0x3b, 0x24, 0x3b, 0xae, 0xc9, 0x7b, 0x9a, 0xcc, 0x02, 0x72, 0x38, 0x61, 0xb0, 0xc6, 0x58, 0x30, 0x23, 0x8e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x4b, 0x23, 0x67, 0x8e, 0x9d, 0xc3, 0x5e, 0xaa, 0xed, 0x49, 0x3e, 0x32, 0x27, 0x3b, 0x24, 0x0c };
-
-		//	memcpy(curBuf, temp, 64);
             FillExtra((u128 *)curBuf);
 
+#ifdef VERUSHASHDEBUG
+            uint256 *bhalf1 = (uint256 *)curBuf;
+            uint256 *bhalf2 = bhalf1 + 1;
+            printf("Curbuf: %s%s\n", bhalf1->GetHex().c_str(), bhalf2->GetHex().c_str());
+#endif
+
+            // gen new key with what is last in buffer
             u128 *key = GenNewCLKey(curBuf);
 
+            // run verusclhash on the buffer
             uint64_t intermediate = vclh(curBuf, key);
 
+            // fill buffer to the end with the result
             FillExtra(&intermediate);
 
+#ifdef VERUSHASHDEBUG
+            printf("intermediate %lx\n", intermediate);
+            printf("Curbuf: %s%s\n", bhalf1->GetHex().c_str(), bhalf2->GetHex().c_str());
+            bhalf1 = (uint256 *)key;
+            bhalf2 = bhalf1 + ((vclh.keyMask + 1) >> 5);
+            printf("   Key: %s%s\n", bhalf1->GetHex().c_str(), bhalf2->GetHex().c_str());
+#endif
 
             // get the final hash with a mutated dynamic key for each hash result
             (*haraka512KeyedFunction)(hash, curBuf, key + IntermediateTo128Offset(intermediate));
-#ifdef VERUSHASHDEBUG
-			printf("[cpu]Final hash    : ");
-			for (int i = 0; i < 32; i++)
-				printf("%02x", ((uint8_t*)&hash[0])[i]);
-			printf("\n");
-#endif
+
             /*
             // TEST BEGIN
             // test against the portable version

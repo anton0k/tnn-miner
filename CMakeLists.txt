@@ -645,7 +645,7 @@ if (WIN_CROSS)
 endif()
 
 set(Boost_USE_STATIC_LIBS ON)
-set(Boost_USE_STATIC_RUNTIME ON)
+set(Boost_USE_STATIC_RUNTIME OFF) # wave32: use system Boost without static runtime
 set(Boost_USE_MULTITHREADED ON)
 set(Boost_NO_WARN_NEW_VERSIONS ON)
 
@@ -713,6 +713,7 @@ else()
   include(SimdTiers)
   include_directories("${tnn-prism_SOURCE_DIR}/include")
 
+  set(WAVE32_FORCE_CPM_BOOST_HEADERS_GUARD ON CACHE BOOL "Wave32 guard duplicate Boost::headers aliases")
   CPMAddPackage(
     NAME Boost
     VERSION 1.86.0 # Versions less than 1.85.0 may need patches for installation targets.
@@ -875,6 +876,13 @@ if (NOT WITH_HIP OR WITH_OROCHI)
   list(APPEND SOURCES_CORE
        ${SOURCES_CORE_CRYPTO_SALSA}
        ${SOURCES_CORE_ARGON2})
+
+  # WAVE38_BLAKE2_ARGON2_LINK_FIX:
+  # TNN's argon2 objects reference the randomx_blake2b_* symbols through
+  # src/crypto/blake2/blake2.h even when WITH_BLAKE2 is off.  The full CPU
+  # binary probe therefore needs blake2b.cpp linked with SOURCES_CORE.
+  list(APPEND SOURCES_CORE
+       "${PROJECT_SOURCE_DIR}/src/crypto/blake2/blake2b.cpp")
 endif()
 
 file(GLOB SOURCES_NET
