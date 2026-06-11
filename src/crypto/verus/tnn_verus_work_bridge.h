@@ -66,6 +66,11 @@ struct work {
 
   uint8_t extra[1388] = {0};
   unsigned char solution[1344] = {0};
+
+  // Keep every field above ABI-compatible with ccminer's struct work. The
+  // linked ccminer verusscan object writes by fixed offsets from its own
+  // header; TNN-only bookkeeping must therefore be appended after solution.
+  alignas(64) uint32_t submit_hashes[MAX_NONCES][8] = {};
 };
 
 extern "C" void bn_store_hash_target_ratio(uint32_t *hash, uint32_t *target, struct work *w, int nonce);

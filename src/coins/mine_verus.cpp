@@ -198,6 +198,12 @@ static uint64_t wave41Fnv1a64(const std::string &s) {
   return h;
 }
 
+static std::string wave41SubmitHashHex(const struct work &w) {
+  return wave41BytesToHex(
+      reinterpret_cast<const unsigned char *>(w.submit_hashes[w.submit_nonce_id]),
+      sizeof(w.submit_hashes[w.submit_nonce_id]));
+}
+
 static std::string wave41SubmitKey(const struct work &w) {
   return wave41SubmitJobId(w) + "|" + wave41SubmitTimeHex(w) + "|" +
          wave41SubmitNonceStr(w) + "|" + wave41SubmitSolHex(w);
@@ -215,6 +221,7 @@ static bool wave41QueueSubmit(const Wave37VerusJobSnapshot &snap, struct work &w
   const std::string timehex = wave41SubmitTimeHex(w);
   const std::string noncestr = wave41SubmitNonceStr(w);
   const std::string solhex = wave41SubmitSolHex(w);
+  const std::string hashhex = wave41SubmitHashHex(w);
   const std::string key = wave41SubmitKey(w);
   const bool allow_same_job_submits = wave41AllowSameJobSubmits();
   bool inserted_key = false;
@@ -264,8 +271,16 @@ static bool wave41QueueSubmit(const Wave37VerusJobSnapshot &snap, struct work &w
             << " allow_same_job=" << (allow_same_job_submits ? 1 : 0)
             << " noncestr_len=" << noncestr.size()
             << " solhex_len=" << solhex.size()
+            << " hash_fnv64=0x" << std::hex << wave41Fnv1a64(hashhex) << std::dec
             << " key_fnv64=0x" << std::hex << wave41Fnv1a64(key) << std::dec
             << "\n";
+  if (std::getenv("TNN_WAVE41_TRACE_SUBMIT_HASH") != nullptr) {
+    std::cout << "wave41_tnn_submit_hash_hex tid=" << tid
+              << " jobid=" << job_id
+              << " nonce=" << noncestr
+              << " hash_hex=" << hashhex
+              << "\n";
+  }
   return true;
 }
 
@@ -327,6 +342,7 @@ static void wave41LiveScanLoop(int tid) {
       w.data[32] = (local_round++ << 8) | static_cast<uint32_t>(scan_tid & 0xff);
       uint32_t max_nonce = w.data[30] + 8191U;
       w.valid_nonces = 0;
+      std::memset(w.submit_hashes, 0, sizeof(w.submit_hashes));
       int hits = scanhash_verus(scan_tid, &w, max_nonce, &done);
       cpu_counter.fetch_add(static_cast<int64_t>(done));
       uint64_t total = wave41Hashes.fetch_add(done) + done;
